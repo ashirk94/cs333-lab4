@@ -5,14 +5,16 @@ CFLAGS = $(DEBUG) -Wall -Wextra -Wshadow -Wunreachable-code \
 -Wold-style-definition -Wmissing-prototypes \
 -Wdeclaration-after-statement -Wno-return-local-addr \
 -Wunsafe-loop-optimizations -Wuninitialized -Werror \
--Wno-unused-parameter
+-Wno-unused-parameter -Wno-string-compare -Wno-stringop-overflow \
+-Wno-stringop-overread -Wno-stringop-truncation
+LDFLAGS = -lcrypt
 PROG1 = thread_hash
 PROGS = $(PROG1)
 
 all: $(PROGS)
 
 $(PROG1): $(PROG1).o
-	$(CC) $(CFLAGS) -o $@ $^
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 $(PROG1).o: $(PROG1).c
 	$(CC) $(CFLAGS) -c $<
