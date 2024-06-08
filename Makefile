@@ -1,6 +1,7 @@
 CC = gcc
 DEBUG = -g
-CFLAGS = $(DEBUG) -Wall -Wextra -Wshadow -Wunreachable-code \
+PTHREAD = -pthread
+CFLAGS = $(DEBUG) $(PTHREAD) -Wall -Wextra -Wshadow -Wunreachable-code \
 -Wredundant-decls -Wmissing-declarations \
 -Wold-style-definition -Wmissing-prototypes \
 -Wdeclaration-after-statement -Wno-return-local-addr \
