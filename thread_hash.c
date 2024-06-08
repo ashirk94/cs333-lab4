@@ -9,7 +9,7 @@
 #include "thread_hash.h"
 
 #define MAX_THREADS 24
-#define BUFFER_SIZE 10000
+#define BUFFER_SIZE 2500
 
 typedef struct {
     int thread_id;
@@ -18,30 +18,36 @@ typedef struct {
     int num_passwords;
     char **dictionary;
     int num_words;
+    FILE *output_file;
+    int verbose;
 } thread_data_t;
 
 pthread_mutex_t lock;
+int total_algo_count[ALGORITHM_MAX] = {0};  // Global count of each algorithm processed
+double total_time = 0.0;
 
 void *crack_passwords(void *arg);
 hash_algorithm_t get_hash_algorithm(const char *hash);
 void print_help(void);
 
-int 
-main(int argc, char **argv) {
+int main(int argc, char **argv) {
     int opt;
-    char *input_file = NULL, *dict_file = NULL;
+    char *input_file = NULL, *dict_file = NULL, *output_file = NULL;
     int num_threads = 1;
-    FILE *input_fp = NULL, *dict_fp = NULL;
+    int apply_nice = 0;
+    int verbose = 0;
+    FILE *input_fp = NULL, *dict_fp = NULL, *out_fp = NULL;
     char **passwords = NULL;
     char **dictionary = NULL;
     int num_passwords = 0, num_words = 0;
     char line[BUFFER_SIZE];
     pthread_t *threads = NULL;
     thread_data_t *thread_data = NULL;
+    int passwords_capacity = 1000, dictionary_capacity = 1000;
     int i;
 
     // Command line processing
-    while ((opt = getopt(argc, argv, "i:d:t:vh")) != -1) {
+    while ((opt = getopt(argc, argv, "i:d:o:t:nvh")) != -1) {
         switch (opt) {
             case 'i':
                 input_file = optarg;
@@ -49,11 +55,18 @@ main(int argc, char **argv) {
             case 'd':
                 dict_file = optarg;
                 break;
+            case 'o':
+                output_file = optarg;
+                break;
             case 't':
                 num_threads = atoi(optarg);
                 if (num_threads > MAX_THREADS) num_threads = MAX_THREADS;
                 break;
+            case 'n':
+                apply_nice = 1;
+                break;
             case 'v':
+                verbose = 1;
                 fprintf(stderr, "Verbose mode enabled\n");
                 break;
             case 'h':
@@ -70,6 +83,13 @@ main(int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
 
+    if (apply_nice) {
+        if (nice(10) == -1) {
+            perror("Error applying nice");
+            exit(EXIT_FAILURE);
+        }
+    }
+
     input_fp = fopen(input_file, "r");
     if (!input_fp) {
         perror("Error opening input file");
@@ -83,14 +103,27 @@ main(int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
 
-    // Allocating memory for passwords and dictionary
-    passwords = malloc(sizeof(char *) * BUFFER_SIZE);
-    dictionary = malloc(sizeof(char *) * BUFFER_SIZE);
+    if (output_file) {
+        out_fp = fopen(output_file, "w");
+        if (!out_fp) {
+            perror("Error opening output file");
+            fclose(input_fp);
+            fclose(dict_fp);
+            exit(EXIT_FAILURE);
+        }
+    } else {
+        out_fp = stdout;
+    }
 
+    // Dynamic allocation for passwords and dictionary based on the number of lines
+
+    passwords = malloc(passwords_capacity * sizeof(char *));
+    dictionary = malloc(dictionary_capacity * sizeof(char *));
     if (!passwords || !dictionary) {
         perror("Error allocating memory for passwords or dictionary");
         fclose(input_fp);
         fclose(dict_fp);
+        fclose(out_fp);
         free(passwords);
         free(dictionary);
         exit(EXIT_FAILURE);
@@ -98,6 +131,18 @@ main(int argc, char **argv) {
 
     while (fgets(line, sizeof(line), input_fp)) {
         line[strcspn(line, "\n")] = '\0';
+        if (num_passwords >= passwords_capacity) {
+            passwords_capacity *= 2;
+            passwords = realloc(passwords, passwords_capacity * sizeof(char *));
+            if (!passwords) {
+                perror("Error reallocating memory for passwords");
+                fclose(input_fp);
+                fclose(dict_fp);
+                fclose(out_fp);
+                free(dictionary);
+                exit(EXIT_FAILURE);
+            }
+        }
         passwords[num_passwords] = strdup(line);
         if (!passwords[num_passwords]) {
             perror("Error duplicating password line");
@@ -108,6 +153,18 @@ main(int argc, char **argv) {
 
     while (fgets(line, sizeof(line), dict_fp)) {
         line[strcspn(line, "\n")] = '\0';
+        if (num_words >= dictionary_capacity) {
+            dictionary_capacity *= 2;
+            dictionary = realloc(dictionary, dictionary_capacity * sizeof(char *));
+            if (!dictionary) {
+                perror("Error reallocating memory for dictionary");
+                fclose(input_fp);
+                fclose(dict_fp);
+                fclose(out_fp);
+                free(passwords);
+                exit(EXIT_FAILURE);
+            }
+        }
         dictionary[num_words] = strdup(line);
         if (!dictionary[num_words]) {
             perror("Error duplicating dictionary line");
@@ -121,7 +178,13 @@ main(int argc, char **argv) {
 
     threads = malloc(num_threads * sizeof(pthread_t));
     thread_data = malloc(num_threads * sizeof(thread_data_t));
-
+    if (!threads || !thread_data) {
+        perror("Error allocating memory for threads or thread_data");
+        free(passwords);
+        free(dictionary);
+        fclose(out_fp);
+        exit(EXIT_FAILURE);
+    }
 
     pthread_mutex_init(&lock, NULL);
 
@@ -132,6 +195,8 @@ main(int argc, char **argv) {
         thread_data[i].num_passwords = num_passwords;
         thread_data[i].dictionary = dictionary;
         thread_data[i].num_words = num_words;
+        thread_data[i].output_file = out_fp;
+        thread_data[i].verbose = verbose;
         pthread_create(&threads[i], NULL, crack_passwords, &thread_data[i]);
     }
 
@@ -153,12 +218,22 @@ main(int argc, char **argv) {
     free(threads);
     free(thread_data);
 
+    if (output_file) {
+        fclose(out_fp);
+    }
+
+    // Print total statistics
+    printf("total:   %d\t%.2f sec\t", num_threads, total_time);
+    for (i = 0; i < ALGORITHM_MAX; i++) {
+        printf("%s: %5d\t", algorithm_string[i], total_algo_count[i]);
+    }
+    printf("total: %8d\n", num_passwords);
+
     return EXIT_SUCCESS;
 }
 
 // Prints help messages
-void 
-print_help(void) {
+void print_help(void) {
     printf("help text\n");
     printf("\t./thread_hash ...\n");
     printf("\tOptions: i:o:d:hvt:n\n");
@@ -171,8 +246,7 @@ print_help(void) {
 }
 
 // Function to identify the hash algorithm used
-hash_algorithm_t 
-get_hash_algorithm(const char *hash) {
+hash_algorithm_t get_hash_algorithm(const char *hash) {
     if (hash[0] != '$') {
         return DES;
     }
@@ -197,8 +271,7 @@ get_hash_algorithm(const char *hash) {
 }
 
 // Function to crack the passwords
-void *
-crack_passwords(void *arg) {
+void *crack_passwords(void *arg) {
     thread_data_t *data = (thread_data_t *)arg;
     int i, j;
     struct crypt_data crypt_data;
@@ -207,7 +280,7 @@ crack_passwords(void *arg) {
     char *hash;
     int algo_count[ALGORITHM_MAX] = {0};  // Count of each algorithm processed
 
-    crypt_data.initialized = 0;
+    memset(&crypt_data, 0, sizeof(crypt_data));
     clock_gettime(CLOCK_MONOTONIC, &start);
 
     for (i = data->thread_id; i < data->num_words; i += data->num_threads) {
@@ -216,8 +289,9 @@ crack_passwords(void *arg) {
             if (hash && strcmp(hash, data->passwords[j]) == 0) {
                 hash_algorithm_t algo = get_hash_algorithm(data->passwords[j]);
                 pthread_mutex_lock(&lock);
-                printf("cracked %s %s\n", data->dictionary[i], data->passwords[j]);
+                fprintf(data->output_file, "cracked  %s  %s\n", data->dictionary[i], data->passwords[j]);
                 algo_count[algo]++;
+                total_algo_count[algo]++;
                 pthread_mutex_unlock(&lock);
             }
         }
@@ -226,10 +300,16 @@ crack_passwords(void *arg) {
     clock_gettime(CLOCK_MONOTONIC, &end);
     elapsed = (end.tv_sec - start.tv_sec) + (end.tv_nsec - start.tv_nsec) / 1E9;
 
-    fprintf(stderr, "Thread %d: Time = %f seconds\n", data->thread_id, elapsed);
-    fprintf(stderr, "Thread %d: Processed %d passwords\n", data->thread_id, data->num_passwords);
-    for (i = 0; i < ALGORITHM_MAX; i++) {
-        fprintf(stderr, "Thread %d: %s count = %d\n", data->thread_id, algorithm_string[i], algo_count[i]);
+    pthread_mutex_lock(&lock);
+    total_time += elapsed;
+    pthread_mutex_unlock(&lock);
+
+    if (data->verbose) {
+        fprintf(stderr, "thread:  %d\t%.2f sec\t", data->thread_id, elapsed);
+        for (i = 0; i < ALGORITHM_MAX; i++) {
+            fprintf(stderr, "%s: %5d\t", algorithm_string[i], algo_count[i]);
+        }
+        fprintf(stderr, "total: %8d\n", data->num_passwords);
     }
 
     pthread_exit(NULL);
