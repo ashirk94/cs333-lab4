@@ -1,3 +1,7 @@
+// Lab 4 thread_hash.c
+// Alan Shirk
+// alans@pdx.edu
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -43,7 +47,6 @@ int main(int argc, char **argv) {
     char line[BUFFER_SIZE];
     pthread_t *threads = NULL;
     thread_data_t *thread_data = NULL;
-    int passwords_capacity = 1000, dictionary_capacity = 1000;
     int i;
 
     // Command line processing
@@ -74,6 +77,7 @@ int main(int argc, char **argv) {
                 exit(EXIT_SUCCESS);
             default:
                 fprintf(stderr, "Unknown option: %c\n", opt);
+                printf("oopsie - unrecognized command line option \"(null)\"\n");
                 exit(EXIT_FAILURE);
         }
     }
@@ -91,86 +95,34 @@ int main(int argc, char **argv) {
     }
 
     input_fp = fopen(input_file, "r");
-    if (!input_fp) {
-        perror("Error opening input file");
-        exit(EXIT_FAILURE);
-    }
-
     dict_fp = fopen(dict_file, "r");
-    if (!dict_fp) {
-        perror("Error opening dictionary file");
-        fclose(input_fp);
+    if (!input_fp || !dict_fp) {
+        perror("Error opening input or dictionary file");
         exit(EXIT_FAILURE);
     }
 
-    if (output_file) {
-        out_fp = fopen(output_file, "w");
-        if (!out_fp) {
-            perror("Error opening output file");
-            fclose(input_fp);
-            fclose(dict_fp);
-            exit(EXIT_FAILURE);
-        }
-    } else {
-        out_fp = stdout;
+    out_fp = output_file ? fopen(output_file, "w") : stdout;
+    if (output_file && !out_fp) {
+        perror("Error opening output file");
+        exit(EXIT_FAILURE);
     }
 
-    // Dynamic allocation for passwords and dictionary based on the number of lines
-
-    passwords = malloc(passwords_capacity * sizeof(char *));
-    dictionary = malloc(dictionary_capacity * sizeof(char *));
+    passwords = malloc(BUFFER_SIZE * sizeof(char *));
+    dictionary = malloc(BUFFER_SIZE * sizeof(char *));
     if (!passwords || !dictionary) {
         perror("Error allocating memory for passwords or dictionary");
-        fclose(input_fp);
-        fclose(dict_fp);
-        fclose(out_fp);
-        free(passwords);
-        free(dictionary);
         exit(EXIT_FAILURE);
     }
 
+    // Reading input and dictionary files
     while (fgets(line, sizeof(line), input_fp)) {
         line[strcspn(line, "\n")] = '\0';
-        if (num_passwords >= passwords_capacity) {
-            passwords_capacity *= 2;
-            passwords = realloc(passwords, passwords_capacity * sizeof(char *));
-            if (!passwords) {
-                perror("Error reallocating memory for passwords");
-                fclose(input_fp);
-                fclose(dict_fp);
-                fclose(out_fp);
-                free(dictionary);
-                exit(EXIT_FAILURE);
-            }
-        }
-        passwords[num_passwords] = strdup(line);
-        if (!passwords[num_passwords]) {
-            perror("Error duplicating password line");
-            break;
-        }
-        num_passwords++;
+        passwords[num_passwords++] = strdup(line);
     }
 
     while (fgets(line, sizeof(line), dict_fp)) {
         line[strcspn(line, "\n")] = '\0';
-        if (num_words >= dictionary_capacity) {
-            dictionary_capacity *= 2;
-            dictionary = realloc(dictionary, dictionary_capacity * sizeof(char *));
-            if (!dictionary) {
-                perror("Error reallocating memory for dictionary");
-                fclose(input_fp);
-                fclose(dict_fp);
-                fclose(out_fp);
-                free(passwords);
-                exit(EXIT_FAILURE);
-            }
-        }
-        dictionary[num_words] = strdup(line);
-        if (!dictionary[num_words]) {
-            perror("Error duplicating dictionary line");
-            break;
-        }
-        num_words++;
+        dictionary[num_words++] = strdup(line);
     }
 
     fclose(input_fp);
@@ -186,6 +138,7 @@ int main(int argc, char **argv) {
         exit(EXIT_FAILURE);
     }
 
+    // Multithreading
     pthread_mutex_init(&lock, NULL);
 
     for (i = 0; i < num_threads; i++) {
@@ -206,6 +159,7 @@ int main(int argc, char **argv) {
 
     pthread_mutex_destroy(&lock);
 
+    // Freeing memory
     for (i = 0; i < num_passwords; i++) {
         free(passwords[i]);
     }
@@ -218,11 +172,12 @@ int main(int argc, char **argv) {
     free(threads);
     free(thread_data);
 
+    // Closes output file
     if (output_file) {
         fclose(out_fp);
     }
 
-    // Print total statistics
+    // Prints total statistics
     printf("total:   %d\t%.2f sec\t", num_threads, total_time);
     for (i = 0; i < ALGORITHM_MAX; i++) {
         printf("%s: %5d\t", algorithm_string[i], total_algo_count[i]);
@@ -242,6 +197,7 @@ void print_help(void) {
     printf("\t\t-d file\t\tdictionary file name (default stdout)\n");
     printf("\t\t-t #\t\tnumber of threads to create (default 1)\n");
     printf("\t\t-v\t\tenable verbose mode\n");
+    printf("\t\t-n\t\tapply nice function\n");
     printf("\t\t-h\t\thelpful text\n");
 }
 

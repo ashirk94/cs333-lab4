@@ -4,7 +4,7 @@ INPUT_FILE="passwords500.txt"
 DICT_FILE="plain500.txt"
 OUTPUT_FILE="performance_results.txt"
 
-THREADS=(8 16 32)
+THREADS=(32)
 
 echo "Testing performance with $INPUT_FILE and $DICT_FILE" > $OUTPUT_FILE
 

@@ -19,3 +19,6 @@ echo "Testing the -n flag"
 
 echo "Testing the -h flag"
 ./thread_hash -h
+
+echo "Testing -q flag for unknown"
+./thread_hash -q
