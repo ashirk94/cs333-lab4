@@ -1,2 +1,0 @@
-Testing performance with passwords500.txt and plain500.txt
-Threads: 32, Time: 106.277517854 seconds

@@ -21,7 +21,7 @@ $(PROG1).o: $(PROG1).c
 	$(CC) $(CFLAGS) -c $<
 
 clean cls:
-	rm -f $(PROGS) *.o *~ \#*
+	rm -f $(PROGS) *.o *~ \#* *.txt *.err *.cracked *.out *.plain *.log
 
 tar:
 	tar cvfa Lab4_${LOGNAME}.tar.gz *.[ch] [mM]akefile

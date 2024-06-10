@@ -1,1 +1,0 @@
-/disk/scratch/rchaney/Classes/cs333/Labs/Lab3/plain10.txt
